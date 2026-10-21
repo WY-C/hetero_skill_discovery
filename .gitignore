@@ -26,4 +26,5 @@ eval/
 __MACOSX/
 *.log
 
+smac
 src/smac
