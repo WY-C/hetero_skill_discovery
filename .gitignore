@@ -1,30 +1,37 @@
-smac/smac
-3rdparty
-SMAC_Maps
-smac_patch
-dataset
-checkpoints
+# External dependencies and simulators
+smac/
+3rdparty/
 
-# Python
-__pycache__/
-*.pyc
-*.pyo
-
-# Datasets
+# Datasets and generated experiment state
 dataset/
-
-# Training outputs
+results/
+logs/
+run_logs/
+pids/
+artifacts/
+experiments/
 checkpoints/
 model_checkpoints/
-results/
-artifacts/
-logs/
-pids/
 eval/
 
-# Temporary files
-__MACOSX/
-*.log
+# Model binaries
+*.th
+*.pt
+*.pth
+*.ckpt
 
-smac
-src/smac
+# Python and tooling caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local environments and editor files
+.venv/
+venv/
+envs/
+.idea/
+.vscode/
+.DS_Store
+>>>>>>> origin/main

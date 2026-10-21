@@ -897,6 +897,16 @@ class HISSDLearner:
                     map_location=lambda storage, loc: storage,
                 )
             )
+<<<<<<< HEAD
         self.optimiser.load_state_dict(
             th.load("{}/opt.th".format(path), map_location=lambda storage, loc: storage)
         )
+=======
+        if not self.main_args.evaluate:
+            self.optimiser.load_state_dict(
+                th.load(
+                    "{}/opt.th".format(path),
+                    map_location=lambda storage, loc: storage,
+                )
+            )
+>>>>>>> origin/main
