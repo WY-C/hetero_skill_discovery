@@ -1,0 +1,35 @@
+# External dependencies and simulators
+smac/
+3rdparty/
+
+# Datasets and generated experiment state
+dataset/
+results/
+logs/
+run_logs/
+pids/
+artifacts/
+experiments/
+checkpoints/
+eval/
+
+# Model binaries
+*.th
+*.pt
+*.pth
+*.ckpt
+
+# Python and tooling caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local environments and editor files
+.venv/
+venv/
+envs/
+.idea/
+.vscode/
+.DS_Store

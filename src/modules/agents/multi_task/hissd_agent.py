@@ -11,6 +11,29 @@ from utils.transformer import Transformer
 from .vq_skill import SkillModule, MLPNet
 
 
+def _hissd_cached_agent_ids(module, n_agents, batch_size, reference):
+    """Cache only constant (non-trainable) ID embeddings per agent module.
+
+    Cache is not registered in state_dict; keys include device, dtype and
+    task population size. Keeps the original batch-row ordering and values.
+    """
+    key = (n_agents, module.args.id_length, module.args.max_agent,
+           reference.dtype, reference.device)
+    cache = getattr(module, "_hissd_binary_id_cache", None)
+    if cache is None:
+        cache = {}
+        module._hissd_binary_id_cache = cache
+    embeddings = cache.get(key)
+    if embeddings is None:
+        embeddings = th.stack([
+            th.as_tensor(binary_embed(i + 1, module.args.id_length,
+                                      module.args.max_agent), dtype=reference.dtype)
+            for i in range(n_agents)
+        ], dim=0).to(reference.device)
+        cache[key] = embeddings
+    return embeddings.repeat(batch_size, 1)
+
+
 class HISSDAgent(nn.Module):
     """  sotax agent for multi-task learning """
 
@@ -289,10 +312,7 @@ class ValueNet(nn.Module):
         bs = int(own_obs.shape[0] / task_n_agents)
 
         # embed agent_id inputs and decompose last_action_inputs
-        agent_id_inputs = [
-            th.as_tensor(binary_embed(i + 1, self.args.id_length, self.args.max_agent), dtype=own_obs.dtype) for i in
-            range(task_n_agents)]
-        agent_id_inputs = th.stack(agent_id_inputs, dim=0).repeat(bs, 1).to(own_obs.device)
+        agent_id_inputs = _hissd_cached_agent_ids(self, task_n_agents, bs, own_obs)
         _, attack_action_info, compact_action_states = task_decomposer.decompose_action_info(last_action_inputs)
 
         # incorporate agent_id embed and compact_action_states
@@ -472,10 +492,7 @@ class Decoder(nn.Module):
         bs = int(own_obs.shape[0] / task_n_agents)
 
         # embed agent_id inputs and decompose last_action_inputs
-        agent_id_inputs = [
-            th.as_tensor(binary_embed(i + 1, self.args.id_length, self.args.max_agent), dtype=own_obs.dtype) for i in
-            range(task_n_agents)]
-        agent_id_inputs = th.stack(agent_id_inputs, dim=0).repeat(bs, 1).to(own_obs.device)
+        agent_id_inputs = _hissd_cached_agent_ids(self, task_n_agents, bs, own_obs)
         _, attack_action_info, compact_action_states = task_decomposer.decompose_action_info(last_action_inputs)
 
         # incorporate agent_id embed and compact_action_states
@@ -658,10 +675,7 @@ class PlannerModel(nn.Module):
         bs = int(own_obs.shape[0] / task_n_agents)
 
         # embed agent_id inputs and decompose last_action_inputs
-        agent_id_inputs = [
-            th.as_tensor(binary_embed(i + 1, self.args.id_length, self.args.max_agent), dtype=own_obs.dtype) for i in
-            range(task_n_agents)]
-        agent_id_inputs = th.stack(agent_id_inputs, dim=0).repeat(bs, 1).to(own_obs.device)
+        agent_id_inputs = _hissd_cached_agent_ids(self, task_n_agents, bs, own_obs)
         _, attack_action_info, compact_action_states = task_decomposer.decompose_action_info(last_action_inputs)
 
         # incorporate agent_id embed and compact_action_states
@@ -697,9 +711,26 @@ class PlannerModel(nn.Module):
         if self.vq_skill:
             outputs, commit_loss = self.skill_module(outputs)
 
-        own_out_h = outputs[:, -1, 0].unsqueeze(1)
-        enemy_out_h = outputs[:, -1, 1:1+n_enemy]
-        ally_out_h = outputs[:, -1, 1+n_enemy:1+n_enemy+n_ally]
+        common_outputs = outputs[:, -1]
+        common_skill_adapter = getattr(self, "common_skill_adapter", None)
+        if common_skill_adapter is not None:
+            observation_outputs = th.cat(
+                [own_hidden, enemy_hidden, ally_hidden], dim=2
+            ).reshape(
+                b,
+                self.args.num_stack_frames,
+                -1,
+                self.entity_embed_dim,
+            )[:, -1]
+            common_outputs, adapter_delta = common_skill_adapter(
+                common_outputs,
+                observation_outputs,
+            )
+            # Unused RMS metric removed to avoid CUDA synchronization.
+
+        own_out_h = common_outputs[:, 0].unsqueeze(1)
+        enemy_out_h = common_outputs[:, 1:1+n_enemy]
+        ally_out_h = common_outputs[:, 1+n_enemy:1+n_enemy+n_ally]
 
         own_out, enemy_out, ally_out = own_out_h, enemy_out_h, ally_out_h
 
@@ -780,10 +811,7 @@ class Discriminator(nn.Module):
         bs = int(own_obs.shape[0] / task_n_agents)
 
         # embed agent_id inputs and decompose last_action_inputs
-        agent_id_inputs = [
-            th.as_tensor(binary_embed(i + 1, self.args.id_length, self.args.max_agent), dtype=own_obs.dtype) for i in
-            range(task_n_agents)]
-        agent_id_inputs = th.stack(agent_id_inputs, dim=0).repeat(bs, 1).to(own_obs.device)
+        agent_id_inputs = _hissd_cached_agent_ids(self, task_n_agents, bs, own_obs)
         _, attack_action_info, compact_action_states = task_decomposer.decompose_action_info(last_action_inputs)
 
         # incorporate agent_id embed and compact_action_states

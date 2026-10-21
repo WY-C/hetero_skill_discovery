@@ -2,6 +2,18 @@
 
 This is the implementation of the ICLR-2025 conference submission "Learning Generalizable Skills from Offline Multi-Task Data for Multi-Agent Coordination".
 
+## Capability/Team Adapter extension
+
+This repository also contains the no-observation capability/team adapter and
+the A/B/C/D training strategies used to compare encoder freezing, full
+fine-tuning, adapter-only training, and joint training from scratch. The main
+configuration is `src/config/algs/hissd_capability_team_noobs.yaml`; launch and
+evaluation scripts are under `scripts/`.
+
+SMAC is intentionally not vendored. Its pinned upstream revision is listed in
+`requirements.txt`, while the required map registry and StarCraft II map files
+are kept in `smac_patch/` and installed with `install_smac_patch.sh`.
+
 ## Installation instructions
 
 ### Install StarCraft II
@@ -34,6 +46,7 @@ The original [SMAC](https://github.com/oxwhirl/smac) package is extended by addi
 
 ```bash
 git clone https://github.com/oxwhirl/smac.git
+git -C smac checkout d6aab33f76abc3849c50463a8592a84f59a5ef84
 pip install -e smac/
 bash install_smac_patch.sh
 ```
