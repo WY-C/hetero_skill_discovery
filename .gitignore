@@ -1,0 +1,29 @@
+smac/smac
+3rdparty
+SMAC_Maps
+smac_patch
+dataset
+checkpoints
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Datasets
+dataset/
+
+# Training outputs
+checkpoints/
+model_checkpoints/
+results/
+artifacts/
+logs/
+pids/
+eval/
+
+# Temporary files
+__MACOSX/
+*.log
+
+src/smac

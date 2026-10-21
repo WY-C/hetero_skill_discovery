@@ -107,15 +107,20 @@ class HISSDLearner:
                 weight_decay=self.main_args.weight_decay,
             )
         elif self.main_args.optim_type.lower() == "adamw":
+            adamw_kwargs = {
+                "fused": bool(getattr(self.main_args, "fused_adamw", False)),
+            }
             self.pre_optimiser = AdamW(
                 params=self.params,
                 lr=self.main_args.lr,
                 weight_decay=self.main_args.weight_decay,
+                **adamw_kwargs,
             )
             self.optimiser = AdamW(
                 params=self.params,
                 lr=self.main_args.critic_lr,
                 weight_decay=self.main_args.weight_decay,
+                **adamw_kwargs,
             )
         else:
             raise ValueError("Invalid optimiser type", self.main_args.optim_type)
@@ -247,13 +252,19 @@ class HISSDLearner:
                     continue
                 target_outs = self.compute_neg_sample(self.last_batch[task_], task_)
                 total_target.append(target_outs)
-            total_target = th.cat(total_target, dim=0)
 
-            for _ in range(cur_out.shape[0]):
-                ssl_loss += self.contrastive_loss(
-                    cur_out, pos_out.detach(), target_outs.detach()
-                )
-            ssl_loss = ssl_loss / cur_out.shape[0]
+            # The bundled toy config contains only one training task ("3m"),
+            # so there is no cross-task negative sample for MoCo.
+            if len(total_target) == 0:
+                ssl_loss = th.tensor(0.0, device=self.device)
+            else:
+                total_target = th.cat(total_target, dim=0)
+
+                for _ in range(cur_out.shape[0]):
+                    ssl_loss += self.contrastive_loss(
+                        cur_out, pos_out.detach(), target_outs.detach()
+                    )
+                ssl_loss = ssl_loss / cur_out.shape[0]
 
         elif (
             len(self.last_batch) != 0
@@ -315,7 +326,7 @@ class HISSDLearner:
 
         else:
             ssl_loss = th.tensor(0.0)
-        
+
         vae_loss = dec_loss / (batch.max_seq_length - self.c)
         loss = vae_loss
         if ssl_loss is not None:

@@ -5,6 +5,10 @@ from multiprocessing import Pipe, Process
 import numpy as np
 import torch as th
 import copy
+import traceback
+
+
+_ENV_WORKER_ERROR = "__env_worker_error__"
 
 
 # Based (very) heavily on SubprocVecEnv from OpenAI Baselines
@@ -32,7 +36,7 @@ class ParallelRunner:
             p.start()
 
         self.parent_conns[0].send(("get_env_info", None))
-        self.env_info = self.parent_conns[0].recv()
+        self.env_info = self._recv(0, "get_env_info")
         self.episode_limit = self.env_info["episode_limit"]
 
         self.t = 0
@@ -45,6 +49,42 @@ class ParallelRunner:
         self.test_stats = {}
 
         self.log_train_stats_t = -100000
+
+    def _recv(self, worker_id, operation):
+        timeout = float(
+            getattr(self.args, "parallel_env_timeout_seconds", 120.0)
+        )
+        conn = self.parent_conns[worker_id]
+        process = self.ps[worker_id]
+        if not conn.poll(timeout):
+            raise TimeoutError(
+                "Environment worker {} timed out after {:.1f}s during {} "
+                "(alive={}, exitcode={})".format(
+                    worker_id,
+                    timeout,
+                    operation,
+                    process.is_alive(),
+                    process.exitcode,
+                )
+            )
+        try:
+            message = conn.recv()
+        except EOFError as exc:
+            raise RuntimeError(
+                "Environment worker {} closed its pipe during {} "
+                "(exitcode={})".format(
+                    worker_id, operation, process.exitcode
+                )
+            ) from exc
+        if isinstance(message, dict) and _ENV_WORKER_ERROR in message:
+            raise RuntimeError(
+                "Environment worker {} failed during {}:\n{}".format(
+                    worker_id,
+                    operation,
+                    message[_ENV_WORKER_ERROR],
+                )
+            )
+        return message
 
     def setup(self, scheme, groups, preprocess, mac):
         self.new_batch = partial(EpisodeBatch, scheme, groups, self.batch_size, self.episode_limit + 1,
@@ -61,8 +101,12 @@ class ParallelRunner:
         pass
 
     def close_env(self):
-        for parent_conn in self.parent_conns:
-            parent_conn.send(("close", None))
+        for worker_id, parent_conn in enumerate(self.parent_conns):
+            if self.ps[worker_id].is_alive():
+                try:
+                    parent_conn.send(("close", None))
+                except (BrokenPipeError, EOFError, OSError):
+                    pass
 
     def reset(self):
         self.batch = self.new_batch()
@@ -77,8 +121,8 @@ class ParallelRunner:
             "obs": []
         }
         # Get the obs, state and avail_actions back
-        for parent_conn in self.parent_conns:
-            data = parent_conn.recv()
+        for worker_id, parent_conn in enumerate(self.parent_conns):
+            data = self._recv(worker_id, "reset")
             pre_transition_data["state"].append(data["state"])
             pre_transition_data["avail_actions"].append(data["avail_actions"])
             pre_transition_data["obs"].append(data["obs"])
@@ -146,7 +190,7 @@ class ParallelRunner:
             # Receive data back for each unterminated env
             for idx, parent_conn in enumerate(self.parent_conns):
                 if not terminated[idx]:
-                    data = parent_conn.recv()
+                    data = self._recv(idx, "step")
                     # Remaining data for this current timestep
                     post_transition_data["reward"].append((data["reward"],))
 
@@ -185,8 +229,8 @@ class ParallelRunner:
             parent_conn.send(("get_stats",None))
 
         env_stats = []
-        for parent_conn in self.parent_conns:
-            env_stat = parent_conn.recv()
+        for worker_id, parent_conn in enumerate(self.parent_conns):
+            env_stat = self._recv(worker_id, "get_stats")
             env_stats.append(env_stat)
 
         if not pretrain_phase:        
@@ -223,45 +267,51 @@ class ParallelRunner:
 
 
 def env_worker(remote, env_fn):
-    # Make environment
-    env = env_fn.x()
-    while True:
-        cmd, data = remote.recv()
-        if cmd == "step":
-            actions = data
-            # Take a step in the environment
-            reward, terminated, env_info = env.step(actions)
-            # Return the observations, avail_actions and state to make the next action
-            state = env.get_state()
-            avail_actions = env.get_avail_actions()
-            obs = env.get_obs()
-            remote.send({
-                # Data for the next timestep needed to pick an action
-                "state": state,
-                "avail_actions": avail_actions,
-                "obs": obs,
-                # Rest of the data for the current timestep
-                "reward": reward,
-                "terminated": terminated,
-                "info": env_info
-            })
-        elif cmd == "reset":
-            env.reset()
-            remote.send({
-                "state": env.get_state(),
-                "avail_actions": env.get_avail_actions(),
-                "obs": env.get_obs()
-            })
-        elif cmd == "close":
-            env.close()
-            remote.close()
-            break
-        elif cmd == "get_env_info":
-            remote.send(env.get_env_info())
-        elif cmd == "get_stats":
-            remote.send(env.get_stats())
-        else:
-            raise NotImplementedError
+    env = None
+    try:
+        env = env_fn.x()
+        while True:
+            cmd, data = remote.recv()
+            if cmd == "step":
+                actions = data
+                reward, terminated, env_info = env.step(actions)
+                remote.send({
+                    "state": env.get_state(),
+                    "avail_actions": env.get_avail_actions(),
+                    "obs": env.get_obs(),
+                    "reward": reward,
+                    "terminated": terminated,
+                    "info": env_info,
+                })
+            elif cmd == "reset":
+                env.reset()
+                remote.send({
+                    "state": env.get_state(),
+                    "avail_actions": env.get_avail_actions(),
+                    "obs": env.get_obs(),
+                })
+            elif cmd == "close":
+                break
+            elif cmd == "get_env_info":
+                remote.send(env.get_env_info())
+            elif cmd == "get_stats":
+                remote.send(env.get_stats())
+            else:
+                raise NotImplementedError
+    except (EOFError, KeyboardInterrupt):
+        pass
+    except BaseException:
+        try:
+            remote.send({_ENV_WORKER_ERROR: traceback.format_exc()})
+        except (BrokenPipeError, EOFError, OSError):
+            pass
+    finally:
+        if env is not None:
+            try:
+                env.close()
+            except BaseException:
+                pass
+        remote.close()
 
 
 class CloudpickleWrapper():

@@ -32,6 +32,10 @@ def my_main(_run, _config, _log):
     config = config_copy(_config)
     np.random.seed(config["seed"])
     th.manual_seed(config["seed"])
+    matmul_precision = config.get("cuda_matmul_precision", "highest")
+    if matmul_precision not in ("highest", "high", "medium"):
+        raise ValueError("cuda_matmul_precision must be highest, high, or medium")
+    th.set_float32_matmul_precision(matmul_precision)
     config['env_args']['seed'] = config["seed"]
 
     # run the framework
@@ -140,7 +144,7 @@ if __name__ == '__main__':
         config_dict['remark'] = '_' + config_dict['remark']
     else:
         config_dict['remark'] = ''
-    unique_token = "{}{}_{}".format(config_dict['name'], config_dict['remark'], datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+    unique_token = "{}{}_seed{}_{}_pid{}".format(config_dict['name'], config_dict['remark'], config_dict.get('seed', 'na'), datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f"), os.getpid())
     config_dict['unique_token'] = unique_token
     
     if config_dict['run_file'].startswith('mto'):
