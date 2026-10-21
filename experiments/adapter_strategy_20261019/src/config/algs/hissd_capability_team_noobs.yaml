@@ -1,0 +1,92 @@
+runner: "mt_episode"
+
+# only use for initializing action selector
+action_selector: "epsilon_greedy"
+epsilon_start: 1.0
+epsilon_finish: 0.05
+epsilon_anneal_time: 50000
+
+# update the target network every _ steps
+target_update_interval: 80
+
+# use the HiSSD learner unchanged
+agent_output_type: "q"
+learner: "hissd_capability_team_learner"
+double_q: True
+mixer: "mt_qattn"
+mixing_embed_dim: 32
+hypernet_layers: 2
+hypernet_embed: 64
+
+name: "hissd_capability_team_noobs"
+# HiSSD with one shared zero-initialized residual common-skill adapter
+agent: "mt_hissd_capability_team"
+common_skill_adapter_enabled: True
+common_skill_adapter_hidden_dim: 128
+
+# mac
+mac: "mt_hissd_mac"
+optim_type: "AdamW"
+
+# params about trans mixing network
+entity_embed_dim: 64
+attn_embed_dim: 8
+skill_dim: 64
+task: 3
+c_step: 1
+beta: 0.05
+coef_conservative: 5.0
+coef_dist: 5.0
+pretrain_steps: 20000
+pretrain: False
+weight_decay: 0.0001
+
+head: 1
+depth: 1
+
+# params about observation decomposition
+id_length: 4
+max_agent: 15
+
+# params about ensemble loss
+coef_ensemble: 0.001
+coef_kl: 0.1
+coef_ent: 0.01
+coef_sim: 1.0
+random: 0.5
+mask: False
+td_weight: 10.0
+epsilon: 0.9
+
+# planner params
+num_stack_frames: 1
+vq_skill: False
+code_dim: 16
+
+# discriminator params
+ssl_type: "moco"
+ssl_time_window: 4
+double_neg: True
+
+noise_weight: 0.0
+adaptation: False
+debug: False
+
+capability_manifest_path: "src/config/capability_profiles.json"
+
+# V3 adapter dimensions; original HiSSD objectives and coefficients are unchanged.
+capability_embed_dim: 32
+team_embed_dim: 32
+v3_residual_scale: 1.0
+v3_log_interval_steps: 100
+
+# Training-strategy experiment controls.
+adapter_training_strategy: "joint_scratch"
+stage2_init_checkpoint: ""
+
+# Ablation: remove pre-transformer observation embedding from the adapter only.
+v3_use_observation_embedding: false
+
+# Runtime-only optimizations; they do not change the model architecture.
+fused_adamw: true
+cuda_matmul_precision: "high"
